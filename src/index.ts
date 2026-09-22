@@ -16,7 +16,7 @@ const server = http.createServer(app);
 // === NUEVA CONFIGURACIÓN DE SEGURIDAD (CORS) ===
 const origenesPermitidos = [
   "http://localhost:3000",
-  "https://tu-proyecto.vercel.app" // <-- REEMPLAZA ESTO CON TU URL DE VERCEL (sin / al final)
+  "https://agro-vox-demo.vercel.app/" // <-- REEMPLAZA ESTO CON TU URL DE VERCEL (sin / al final)
 ];
 
 // Configuración para WebSockets (Socket.io)
