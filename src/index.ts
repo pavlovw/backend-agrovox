@@ -13,17 +13,25 @@ import simuladorRoutes from './routes/simuladorRoutes';
 const app = express();
 const server = http.createServer(app);
 
+// === NUEVA CONFIGURACIÓN DE SEGURIDAD (CORS) ===
+const origenesPermitidos = [
+  "http://localhost:3000",
+  "https://tu-proyecto.vercel.app" // <-- REEMPLAZA ESTO CON TU URL DE VERCEL (sin / al final)
+];
+
+// Configuración para WebSockets (Socket.io)
 export const io = new Server(server, {
   cors: {
-    origin: '*',
-    methods: ['GET', 'POST', 'PUT', 'DELETE']
+    origin: origenesPermitidos,
+    methods: ['GET', 'POST', 'PUT', 'DELETE'],
+    credentials: true
   }
 });
 
 export const prisma = new PrismaClient();
 
-// Middlewares
-app.use(cors());
+// Middlewares - Configuración para peticiones HTTP (Express)
+app.use(cors({ origin: origenesPermitidos, credentials: true }));
 app.use(express.json());
 
 // 2. MONTAMOS LAS RUTAS (Esto es lo que evita el error 404)
