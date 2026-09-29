@@ -11,13 +11,16 @@ router.get('/', (req, res) => {
         <title>Laboratorio IoT AgroVox - RF Realista</title>
         <script src="https://cdn.tailwindcss.com"></script>
     </head>
-    <body class="bg-slate-950 text-slate-300 h-screen overflow-hidden font-mono flex flex-col">
+    <body class="bg-slate-950 text-slate-300 h-screen overflow-hidden font-mono flex flex-col" onload="cargarEstado()">
         
         <header class="bg-slate-900 border-b border-slate-800 p-6 flex justify-between items-center shrink-0 shadow-md">
             <h1 class="text-3xl font-bold text-white flex items-center gap-4">
                 📡 Simulador de Hardware (Zero-Touch)
             </h1>
             <div class="flex gap-4 items-center">
+                <button onclick="limpiarEstado()" class="bg-red-600/80 hover:bg-red-500 text-white px-4 py-3 rounded-lg transition-colors text-sm font-bold shadow-lg border border-red-500/50">
+                    🗑️ Limpiar Memoria
+                </button>
                 <label class="bg-blue-600 hover:bg-blue-500 text-white px-6 py-3 rounded-lg cursor-pointer transition-colors text-base font-bold shadow-lg">
                     📥 Importar Red Física (JSON)
                     <input type="file" id="fileInput" accept=".json" class="hidden" onchange="importarHardware(event)">
@@ -79,6 +82,45 @@ router.get('/', (req, res) => {
             const INTERVALO_PING = 10000; 
             const DESGASTE_BATERIA = 0.5; 
 
+            // --- LOCAL STORAGE (NUEVO) ---
+            function guardarEstado() {
+                // Clonamos para evitar guardar los timers de setInterval en memoria
+                const copia = JSON.parse(JSON.stringify(hardware));
+                copia.gateways.forEach(g => delete g.timer);
+                copia.nodos.forEach(n => delete n.timer);
+                localStorage.setItem('agrovox_hardware', JSON.stringify(copia));
+            }
+
+            function cargarEstado() {
+                const memoria = localStorage.getItem('agrovox_hardware');
+                if (memoria) {
+                    try {
+                        hardware = JSON.parse(memoria);
+                        // Reactivamos los motores de transmisión si estaban encendidos
+                        hardware.gateways.forEach(gw => {
+                            if (gw.encendido) gw.timer = setInterval(() => transmitirPaquete(gw), INTERVALO_PING);
+                        });
+                        hardware.nodos.forEach(nodo => {
+                            if (nodo.encendido) nodo.timer = setInterval(() => transmitirPaquete(nodo), INTERVALO_PING);
+                        });
+                        logTerminal('Sistema', 'Estado anterior recuperado de la memoria local.', 'text-green-400 font-bold');
+                        renderUI();
+                    } catch (e) {
+                        console.error('Error cargando estado', e);
+                    }
+                }
+            }
+
+            function limpiarEstado() {
+                localStorage.removeItem('agrovox_hardware');
+                hardware.gateways.forEach(gw => clearInterval(gw.timer));
+                hardware.nodos.forEach(n => clearInterval(n.timer));
+                hardware = { gateways: [], nodos: [] };
+                renderUI();
+                logTerminal('Sistema', 'Memoria del simulador borrada exitosamente.', 'text-amber-500 font-bold');
+            }
+            // ------------------------------
+
             // IMPORTAR EL JSON
             function importarHardware(event) {
                 const file = event.target.files[0];
@@ -110,6 +152,7 @@ router.get('/', (req, res) => {
                         }));
 
                         logTerminal('Sistema', 'Inventario físico cargado. Equipos desconectados.', 'text-blue-400');
+                        guardarEstado();
                         renderUI();
                     } catch (err) {
                         alert("Error leyendo JSON");
@@ -153,6 +196,7 @@ router.get('/', (req, res) => {
                 if (nodo) {
                     nodo.bateria = parseFloat(valor);
                     document.getElementById('bat-val-' + id).innerText = nodo.bateria + '%';
+                    guardarEstado();
                     if (nodo.encendido) transmitirPaquete(nodo);
                 }
             }
@@ -162,6 +206,7 @@ router.get('/', (req, res) => {
                 const nodo = hardware.nodos.find(x => x.id === id);
                 if (nodo) {
                     nodo.cavitacion = !nodo.cavitacion;
+                    guardarEstado();
                     renderUI();
                     if (nodo.encendido) transmitirPaquete(nodo);
                 }
@@ -241,6 +286,7 @@ router.get('/', (req, res) => {
                     
                     logTerminal(item.id, 'Dispositivo APAGADO', 'text-red-500');
                 }
+                guardarEstado();
                 renderUI();
             }
 
@@ -252,6 +298,7 @@ router.get('/', (req, res) => {
                 hardware[tipoLista].forEach(item => {
                     if (item.encendido !== turnOn) toggleDispositivo(tipoLista, item.id);
                 });
+                guardarEstado();
             }
 
             // MOTOR DE TRANSMISIÓN
@@ -302,6 +349,7 @@ router.get('/', (req, res) => {
                 if(dispositivo.tipo === 'NODO') {
                     const batElement = document.getElementById('bat-val-' + dispositivo.id);
                     if(batElement) batElement.innerText = dispositivo.bateria.toFixed(1) + '%';
+                    guardarEstado(); // Guardamos el pequeño desgaste en memoria
                 }
             }
 
