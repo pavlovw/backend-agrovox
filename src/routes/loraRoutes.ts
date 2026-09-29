@@ -7,7 +7,11 @@ const router = Router();
 
 router.post('/uplink', async (req, res) => {
   try {
-    const { idNodo, tipo, bateria, senalDbm, latitud, longitud, cavitacion } = req.body;
+    let { idNodo, tipo, bateria, senalDbm, latitud, longitud, cavitacion } = req.body;
+
+    if (bateria !== undefined) {
+      bateria = Math.round(bateria);
+    }
 
     // LÓGICA PARA GATEWAYS
     if (tipo === 'GATEWAY') {
