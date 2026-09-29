@@ -3,7 +3,7 @@ import { prisma } from '../index';
 
 const router = Router();
 
-// 1. Endpoint para destruir todo el hardware y empezar de 0
+// 1. Endpoint para borrar el hardware y empezar de 0
 router.delete('/reset-db', async (req, res) => {
     try {
         await prisma.lectura.deleteMany({});
@@ -16,17 +16,15 @@ router.delete('/reset-db', async (req, res) => {
     }
 });
 
-// 2. NUEVO: Endpoint que implementa TU IDEA (Pre-Aprovisionamiento)
+// 2. Endpoint para guardar el JSON masivamente en PostgreSQL
 router.post('/aprovisionar', async (req, res) => {
     try {
         const { gateways, nodos } = req.body;
 
-        // Limpieza de seguridad antes de insertar
         await prisma.lectura.deleteMany({});
         await prisma.nodo.deleteMany({});
         await prisma.gateway.deleteMany({});
 
-        // Insertamos los Gateways en PostgreSQL
         if (gateways && gateways.length > 0) {
             for (const gw of gateways) {
                 await prisma.gateway.create({
@@ -40,7 +38,6 @@ router.post('/aprovisionar', async (req, res) => {
             }
         }
 
-        // Insertamos los Nodos en PostgreSQL
         if (nodos && nodos.length > 0) {
             for (const n of nodos) {
                 await prisma.nodo.create({
@@ -57,8 +54,20 @@ router.post('/aprovisionar', async (req, res) => {
 
         res.status(200).json({ mensaje: 'Hardware aprovisionado con éxito' });
     } catch (error) {
-        console.error('Error en el pre-aprovisionamiento:', error);
+        console.error('Error en el aprovisionamiento:', error);
         res.status(500).json({ error: 'Error interno insertando hardware' });
+    }
+});
+
+// 3. NUEVO: Endpoint para que cualquier celular o PC consulte el hardware existente
+router.get('/dispositivos', async (req, res) => {
+    try {
+        const gateways = await prisma.gateway.findMany({ orderBy: { id: 'asc' } });
+        const nodos = await prisma.nodo.findMany({ orderBy: { id: 'asc' } });
+        res.status(200).json({ gateways, nodos });
+    } catch (error) {
+        console.error('Error obteniendo dispositivos:', error);
+        res.status(500).json({ error: 'Error consultando PostgreSQL' });
     }
 });
 
@@ -68,71 +77,70 @@ router.get('/', (req, res) => {
     <html lang="es">
     <head>
         <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>Laboratorio IoT AgroVox - RF Realista</title>
         <script src="https://cdn.tailwindcss.com"></script>
     </head>
-    <body class="bg-slate-950 text-slate-300 h-screen overflow-hidden font-mono flex flex-col" onload="cargarEstado()">
+    <body class="bg-slate-950 text-slate-300 min-h-screen font-mono flex flex-col" onload="cargarEstado()">
         
-        <header class="bg-slate-900 border-b border-slate-800 p-6 flex justify-between items-center shrink-0 shadow-md">
-            <h1 class="text-3xl font-bold text-white flex items-center gap-4">
+        <header class="bg-slate-900 border-b border-slate-800 p-4 md:p-6 flex flex-wrap justify-between items-center gap-4 shrink-0 shadow-md">
+            <h1 class="text-xl md:text-2xl font-bold text-white flex items-center gap-3">
                 📡 Simulador de Hardware
             </h1>
-            <div class="flex gap-3 items-center">
-                <button onclick="resetearBD()" class="bg-red-800 hover:bg-red-600 text-white px-4 py-3 rounded-lg transition-colors text-sm font-bold shadow-lg border border-red-500/50 flex items-center gap-2">
+            <div class="flex flex-wrap gap-2 items-center">
+                <button onclick="resetearBD()" class="bg-red-800 hover:bg-red-600 text-white px-3 py-2 rounded-lg transition-colors text-xs md:text-sm font-bold shadow-lg border border-red-500/50">
                     ⚠️ Resetear BD
                 </button>
 
-                <button onclick="limpiarEstado()" class="bg-orange-600/80 hover:bg-orange-500 text-white px-4 py-3 rounded-lg transition-colors text-sm font-bold shadow-lg border border-orange-500/50">
+                <button onclick="limpiarEstado()" class="bg-orange-600/80 hover:bg-orange-500 text-white px-3 py-2 rounded-lg transition-colors text-xs md:text-sm font-bold shadow-lg border border-orange-500/50">
                     🧹 Limpiar Pantalla
                 </button>
 
-                <label class="bg-blue-600 hover:bg-blue-500 text-white px-6 py-3 rounded-lg cursor-pointer transition-colors text-base font-bold shadow-lg ml-2">
-                    📥 Importar Red Física (JSON)
+                <label class="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg cursor-pointer transition-colors text-xs md:text-sm font-bold shadow-lg">
+                    📥 Importar JSON
                     <input type="file" id="fileInput" accept=".json" class="hidden" onchange="importarHardware(event)">
                 </label>
             </div>
         </header>
 
-        <div class="flex flex-1 overflow-hidden">
+        <div class="flex flex-col md:flex-row flex-1 overflow-hidden">
             
-            <div class="w-1/2 bg-slate-900 border-r border-slate-800 flex flex-col overflow-hidden">
-                <div class="flex-1 overflow-y-auto p-8 space-y-8">
-                    
-                    <div>
-                        <div class="flex justify-between items-center mb-5">
-                            <h2 class="text-lg font-bold text-slate-400 uppercase tracking-widest">Gateways de Enlace</h2>
-                            <button onclick="toggleGlobal('gateways')" class="text-sm bg-slate-800 hover:bg-slate-700 text-white px-4 py-2 rounded-lg border border-slate-700 transition-colors shadow-sm">
-                                ON/OFF Todos
-                            </button>
-                        </div>
-                        <div id="lista-gateways" class="space-y-4">
-                            <p class="text-sm text-slate-600 italic">Sube un JSON para cargar gateways.</p>
-                        </div>
+            <div class="w-full md:w-1/2 bg-slate-900 border-r border-slate-800 flex flex-col overflow-y-auto p-4 md:p-6 space-y-6">
+                
+                <div>
+                    <div class="flex justify-between items-center mb-4">
+                        <h2 class="text-base font-bold text-slate-400 uppercase tracking-widest">Gateways de Enlace</h2>
+                        <button onclick="toggleGlobal('gateways')" class="text-xs bg-slate-800 hover:bg-slate-700 text-white px-3 py-1.5 rounded-lg border border-slate-700 transition-colors shadow-sm">
+                            ON/OFF Todos
+                        </button>
                     </div>
-
-                    <hr class="border-slate-800 my-8">
-
-                    <div>
-                        <div class="flex justify-between items-center mb-5">
-                            <h2 class="text-lg font-bold text-slate-400 uppercase tracking-widest">Nodos (Sensores)</h2>
-                            <button onclick="toggleGlobal('nodos')" class="text-sm bg-slate-800 hover:bg-slate-700 text-white px-4 py-2 rounded-lg border border-slate-700 transition-colors shadow-sm">
-                                ON/OFF Todos
-                            </button>
-                        </div>
-                        <div id="lista-nodos" class="space-y-4">
-                            <p class="text-sm text-slate-600 italic">Sube un JSON para cargar nodos.</p>
-                        </div>
+                    <div id="lista-gateways" class="space-y-3">
+                        <p class="text-xs text-slate-600 italic">Sincronizando con PostgreSQL...</p>
                     </div>
-
                 </div>
+
+                <hr class="border-slate-800 my-4">
+
+                <div>
+                    <div class="flex justify-between items-center mb-4">
+                        <h2 class="text-base font-bold text-slate-400 uppercase tracking-widest">Nodos (Sensores)</h2>
+                        <button onclick="toggleGlobal('nodos')" class="text-xs bg-slate-800 hover:bg-slate-700 text-white px-3 py-1.5 rounded-lg border border-slate-700 transition-colors shadow-sm">
+                            ON/OFF Todos
+                        </button>
+                    </div>
+                    <div id="lista-nodos" class="space-y-3">
+                        <p class="text-xs text-slate-600 italic">Sincronizando con PostgreSQL...</p>
+                    </div>
+                </div>
+
             </div>
 
-            <div class="w-1/2 bg-black p-6 flex flex-col">
-                <div class="flex justify-between items-center mb-4 shrink-0">
-                    <h2 class="text-lg font-bold text-green-500 uppercase tracking-widest">Terminal de Tráfico LoRaWAN</h2>
-                    <button onclick="document.getElementById('consola').innerHTML=''" class="text-sm text-slate-500 hover:text-white transition-colors bg-slate-900 px-4 py-2 rounded-lg border border-slate-800">Limpiar Log</button>
+            <div class="w-full md:w-1/2 bg-black p-4 md:p-6 flex flex-col h-72 md:h-auto">
+                <div class="flex justify-between items-center mb-3 shrink-0">
+                    <h2 class="text-sm md:text-base font-bold text-green-500 uppercase tracking-widest">Terminal LoRaWAN</h2>
+                    <button onclick="document.getElementById('consola').innerHTML=''" class="text-xs text-slate-500 hover:text-white transition-colors bg-slate-900 px-3 py-1 rounded-lg border border-slate-800">Limpiar</button>
                 </div>
-                <div id="consola" class="flex-1 overflow-y-auto bg-slate-900/50 rounded-xl border border-slate-800 p-6 text-sm md:text-base font-mono space-y-2 shadow-inner">
+                <div id="consola" class="flex-1 overflow-y-auto bg-slate-900/50 rounded-xl border border-slate-800 p-4 text-xs font-mono space-y-1 shadow-inner">
                     <div class="text-slate-600">Esperando inicialización de dispositivos...</div>
                 </div>
             </div>
@@ -150,18 +158,69 @@ router.get('/', (req, res) => {
                 localStorage.setItem('agrovox_hardware', JSON.stringify(copia));
             }
 
-            function cargarEstado() {
+            // SINCRONIZACIÓN AUTOMÁTICA CON POSTGRESQL
+            async function cargarEstado() {
+                try {
+                    const res = await fetch('/simulador/dispositivos');
+                    if (res.ok) {
+                        const data = await res.json();
+                        if ((data.gateways && data.gateways.length > 0) || (data.nodos && data.nodos.length > 0)) {
+                            const memoriaLocal = JSON.parse(localStorage.getItem('agrovox_hardware') || '{}');
+
+                            hardware.gateways = (data.gateways || []).map(gw => {
+                                const local = (memoriaLocal.gateways || []).find(g => g.id === gw.id);
+                                const encendido = local ? local.encendido : false;
+                                return {
+                                    id: gw.id,
+                                    latitud: gw.latitud,
+                                    longitud: gw.longitud,
+                                    tipo: 'GATEWAY',
+                                    encendido: encendido,
+                                    senalDbm: local ? local.senalDbm : -68,
+                                    segundosMalaSenal: 0,
+                                    timer: null
+                                };
+                            });
+
+                            hardware.nodos = (data.nodos || []).map(nodo => {
+                                const local = (memoriaLocal.nodos || []).find(n => n.id === nodo.id);
+                                const encendido = local ? local.encendido : false;
+                                return {
+                                    id: nodo.id,
+                                    latitud: nodo.latitud,
+                                    longitud: nodo.longitud,
+                                    tipo: 'NODO',
+                                    encendido: encendido,
+                                    bateria: local ? local.bateria : (nodo.bateria ?? 100),
+                                    cavitacion: local ? local.cavitacion : false,
+                                    senalDbm: local ? local.senalDbm : -70,
+                                    segundosMalaSenal: 0,
+                                    timer: null
+                                };
+                            });
+
+                            // Reactivar temporizadores si estaban encendidos localmente
+                            hardware.gateways.forEach(gw => {
+                                if (gw.encendido) gw.timer = setInterval(() => transmitirPaquete(gw), INTERVALO_PING);
+                            });
+                            hardware.nodos.forEach(nodo => {
+                                if (nodo.encendido) nodo.timer = setInterval(() => transmitirPaquete(nodo), INTERVALO_PING);
+                            });
+
+                            logTerminal('Sistema', 'Hardware cargado directamente desde PostgreSQL.', 'text-green-400 font-bold');
+                            renderUI();
+                            return;
+                        }
+                    }
+                } catch (e) {
+                    console.warn('Error consultando base de datos:', e);
+                }
+
+                // Fallback a localStorage si la red falló
                 const memoria = localStorage.getItem('agrovox_hardware');
                 if (memoria) {
                     try {
                         hardware = JSON.parse(memoria);
-                        hardware.gateways.forEach(gw => {
-                            if (gw.encendido) gw.timer = setInterval(() => transmitirPaquete(gw), INTERVALO_PING);
-                        });
-                        hardware.nodos.forEach(nodo => {
-                            if (nodo.encendido) nodo.timer = setInterval(() => transmitirPaquete(nodo), INTERVALO_PING);
-                        });
-                        logTerminal('Sistema', 'Estado recuperado de memoria.', 'text-green-400 font-bold');
                         renderUI();
                     } catch (e) { console.error(e); }
                 }
@@ -180,18 +239,15 @@ router.get('/', (req, res) => {
                 if (!confirmacion) return;
 
                 try {
-                    const basePath = window.location.pathname.endsWith('/') ? window.location.pathname : window.location.pathname + '/';
-                    const response = await fetch(basePath + 'reset-db', { method: 'DELETE' });
-                    
+                    const response = await fetch('/simulador/reset-db', { method: 'DELETE' });
                     if (response.ok) {
                         limpiarEstado();
-                        logTerminal('SISTEMA', 'BASE DE DATOS FORMATEADA CON ÉXITO.', 'text-red-500 font-bold text-lg');
+                        logTerminal('SISTEMA', 'BASE DE DATOS FORMATEADA CON ÉXITO.', 'text-red-500 font-bold');
                         alert("✅ Base de datos limpiada con éxito.");
                     } else { alert("❌ Error al borrar la base de datos."); }
                 } catch (error) { alert("❌ Error de red."); }
             }
 
-            // --- LÓGICA DE IMPORTACIÓN ACTUALIZADA CON TU IDEA ---
             function importarHardware(event) {
                 const file = event.target.files[0];
                 if (!file) return;
@@ -201,9 +257,7 @@ router.get('/', (req, res) => {
                     try {
                         const data = JSON.parse(e.target.result);
                         
-                        // 1. Enviamos el JSON directamente a PostgreSQL PRIMERO
-                        const basePath = window.location.pathname.endsWith('/') ? window.location.pathname : window.location.pathname + '/';
-                        const res = await fetch(basePath + 'aprovisionar', {
+                        const res = await fetch('/simulador/aprovisionar', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify(data)
@@ -211,7 +265,6 @@ router.get('/', (req, res) => {
 
                         if (!res.ok) throw new Error("Error en aprovisionamiento BD");
 
-                        // 2. Si la BD lo aceptó, lo dibujamos en pantalla
                         hardware.gateways = (data.gateways || []).map(gw => ({
                             ...gw, tipo: 'GATEWAY', encendido: false, senalDbm: -68, segundosMalaSenal: 0, timer: null 
                         }));
@@ -220,12 +273,11 @@ router.get('/', (req, res) => {
                             ...nodo, tipo: 'NODO', encendido: false, bateria: 100, cavitacion: false, senalDbm: -70, segundosMalaSenal: 0, timer: null 
                         }));
 
-                        logTerminal('Sistema', 'Equipos importados a PostgreSQL correctamente. Nodos en estado inactivo.', 'text-blue-400 font-bold');
+                        logTerminal('Sistema', 'Equipos guardados en PostgreSQL. Listos para operar.', 'text-blue-400 font-bold');
                         guardarEstado();
                         renderUI();
                     } catch (err) {
                         alert("Error leyendo o insertando JSON");
-                        console.error(err);
                     }
                 };
                 reader.readAsText(file);
@@ -269,8 +321,8 @@ router.get('/', (req, res) => {
                 const nodo = hardware.nodos.find(x => x.id === id);
                 if (nodo) {
                     nodo.cavitacion = !nodo.cavitacion;
-                    guardarEstado();
                     renderUI();
+                    guardarEstado();
                     if (nodo.encendido) transmitirPaquete(nodo);
                 }
             }
@@ -283,38 +335,38 @@ router.get('/', (req, res) => {
                     const senalColor = d.senalDbm <= -100 ? 'text-amber-400 font-bold animate-pulse' : 'text-slate-400 font-medium';
                     
                     return \`
-                        <div class="bg-slate-800/80 border-2 \${borderColor} rounded-xl p-5 flex flex-col transition-colors shadow-md">
+                        <div class="bg-slate-800/80 border-2 \${borderColor} rounded-xl p-4 flex flex-col transition-colors shadow-md">
                             <div class="flex justify-between items-center">
                                 <div>
-                                    <p class="font-bold text-xl \${textColor}">\${d.id}</p>
-                                    <p class="text-sm text-slate-500 mt-1 flex items-center gap-2">
+                                    <p class="font-bold text-lg \${textColor}">\${d.id}</p>
+                                    <p class="text-xs text-slate-500 mt-0.5 flex items-center gap-2">
                                         <span>\${type === 'nodos' ? 'Activo' : 'Antena'}</span> • 
                                         <span id="signal-val-\${d.id}" class="\${senalColor}">📶 \${d.senalDbm} dBm</span>
                                     </p>
                                 </div>
                                 <button onclick="toggleDispositivo('\${type}', '\${d.id}')" 
                                         class="\${d.encendido ? 'bg-red-500/20 text-red-400 hover:bg-red-500/30 border-red-500/30' : 'bg-green-500/20 text-green-400 hover:bg-green-500/30 border-green-500/30'} 
-                                               px-5 py-2.5 rounded-lg text-sm font-bold transition-colors w-32 text-center border-2">
+                                               px-3 py-1.5 rounded-lg text-xs font-bold transition-colors w-28 text-center border-2">
                                     \${d.encendido ? 'APAGAR' : 'ENCENDER'}
                                 </button>
                             </div>
 
                             \${type === 'nodos' ? \`
-                            <div class="mt-5 pt-5 border-t border-slate-700/50 flex flex-col gap-5">
+                            <div class="mt-4 pt-3 border-t border-slate-700/50 flex flex-col gap-3">
                                 <div class="flex items-center justify-between">
-                                    <label class="text-sm text-slate-400 font-bold">Batería: <span id="bat-val-\${d.id}" class="text-white">\${d.bateria.toFixed(1)}%</span></label>
-                                    <input type="range" min="0" max="100" value="\${d.bateria}" onchange="setBateria('\${d.id}', this.value)" class="w-48 h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer">
+                                    <label class="text-xs text-slate-400 font-bold">Batería: <span id="bat-val-\${d.id}" class="text-white">\${d.bateria.toFixed(1)}%</span></label>
+                                    <input type="range" min="0" max="100" value="\${d.bateria}" onchange="setBateria('\${d.id}', this.value)" class="w-36 h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer">
                                 </div>
                                 <div class="flex items-center justify-between">
-                                    <span class="text-sm text-slate-400 font-bold">Estrés Hídrico (Cavitación)</span>
-                                    <button onclick="toggleCavitacion('\${d.id}')" class="text-sm px-4 py-1.5 rounded-lg border-2 transition-colors font-bold \${d.cavitacion ? 'bg-red-500/20 text-red-400 border-red-500/50' : 'bg-slate-700 text-slate-400 border-slate-600 hover:bg-slate-600'}">
-                                        \${d.cavitacion ? 'DETECTADA' : 'NORMAL'}
+                                    <span class="text-xs text-slate-400 font-bold">Estrés Hídrico:</span>
+                                    <button onclick="toggleCavitacion('\${d.id}')" class="text-xs px-3 py-1 rounded-lg border-2 transition-colors font-bold \${d.cavitacion ? 'bg-red-500/20 text-red-400 border-red-500/50' : 'bg-slate-700 text-slate-400 border-slate-600 hover:bg-slate-600'}">
+                                        \${d.cavitacion ? 'DETECTADA 🚨' : 'NORMAL'}
                                     </button>
                                 </div>
                             </div>
                             <div class="flex items-center justify-between mt-2 pt-2 border-t border-slate-700/30">
-                                <span class="text-[11px] text-slate-400 font-bold">Respuesta Agricultor:</span>
-                                <button onclick="simularRiego('\${d.id}')" class="text-xs bg-blue-600/30 hover:bg-blue-600/50 text-blue-400 border border-blue-500/40 px-3 py-1 rounded font-bold transition-colors">
+                                <span class="text-[11px] text-slate-400 font-bold">Agricultor:</span>
+                                <button onclick="simularRiego('\${d.id}')" class="text-xs bg-blue-600/30 hover:bg-blue-600/50 text-blue-400 border border-blue-500/40 px-2 py-1 rounded font-bold transition-colors">
                                     💧 Confirmar Riego
                                 </button>
                             </div>                            
@@ -323,8 +375,8 @@ router.get('/', (req, res) => {
                     \`;
                 };
 
-                document.getElementById('lista-gateways').innerHTML = hardware.gateways.map(gw => drawItem(gw, 'gateways')).join('') || '<p class="text-base text-slate-600 p-4 bg-slate-900 rounded-lg">Lista vacía.</p>';
-                document.getElementById('lista-nodos').innerHTML = hardware.nodos.map(n => drawItem(n, 'nodos')).join('') || '<p class="text-base text-slate-600 p-4 bg-slate-900 rounded-lg">Lista vacía.</p>';
+                document.getElementById('lista-gateways').innerHTML = hardware.gateways.map(gw => drawItem(gw, 'gateways')).join('') || '<p class="text-xs text-slate-600 p-3 bg-slate-900 rounded-lg">No hay gateways.</p>';
+                document.getElementById('lista-nodos').innerHTML = hardware.nodos.map(n => drawItem(n, 'nodos')).join('') || '<p class="text-xs text-slate-600 p-3 bg-slate-900 rounded-lg">No hay nodos.</p>';
             }
 
             function toggleDispositivo(tipoLista, id) {
