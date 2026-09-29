@@ -1,12 +1,11 @@
 import { Router } from 'express';
-import { prisma } from '../index'; // Importamos prisma para poder borrar la BD
+import { prisma } from '../index'; 
 
 const router = Router();
 
-// NUEVO: Endpoint para destruir todo el hardware y las lecturas y empezar de 0
+// 1. Endpoint para destruir todo el hardware y empezar de 0
 router.delete('/reset-db', async (req, res) => {
     try {
-        // Borramos en orden para respetar las relaciones
         await prisma.lectura.deleteMany({});
         await prisma.nodo.deleteMany({});
         await prisma.gateway.deleteMany({});
@@ -14,6 +13,52 @@ router.delete('/reset-db', async (req, res) => {
     } catch (error) {
         console.error('Error reseteando BD:', error);
         res.status(500).json({ error: 'Error reseteando PostgreSQL' });
+    }
+});
+
+// 2. NUEVO: Endpoint que implementa TU IDEA (Pre-Aprovisionamiento)
+router.post('/aprovisionar', async (req, res) => {
+    try {
+        const { gateways, nodos } = req.body;
+
+        // Limpieza de seguridad antes de insertar
+        await prisma.lectura.deleteMany({});
+        await prisma.nodo.deleteMany({});
+        await prisma.gateway.deleteMany({});
+
+        // Insertamos los Gateways en PostgreSQL
+        if (gateways && gateways.length > 0) {
+            for (const gw of gateways) {
+                await prisma.gateway.create({
+                    data: {
+                        id: gw.id,
+                        estado: 'INACTIVO',
+                        latitud: parseFloat(gw.latitud) || 0,
+                        longitud: parseFloat(gw.longitud) || 0
+                    }
+                });
+            }
+        }
+
+        // Insertamos los Nodos en PostgreSQL
+        if (nodos && nodos.length > 0) {
+            for (const n of nodos) {
+                await prisma.nodo.create({
+                    data: {
+                        id: n.id,
+                        estado: 'INACTIVO',
+                        bateria: 100,
+                        latitud: parseFloat(n.latitud) || 0,
+                        longitud: parseFloat(n.longitud) || 0
+                    }
+                });
+            }
+        }
+
+        res.status(200).json({ mensaje: 'Hardware aprovisionado con éxito' });
+    } catch (error) {
+        console.error('Error en el pre-aprovisionamiento:', error);
+        res.status(500).json({ error: 'Error interno insertando hardware' });
     }
 });
 
@@ -30,11 +75,11 @@ router.get('/', (req, res) => {
         
         <header class="bg-slate-900 border-b border-slate-800 p-6 flex justify-between items-center shrink-0 shadow-md">
             <h1 class="text-3xl font-bold text-white flex items-center gap-4">
-                📡 Simulador de Hardware (Zero-Touch)
+                📡 Simulador de Hardware
             </h1>
             <div class="flex gap-3 items-center">
                 <button onclick="resetearBD()" class="bg-red-800 hover:bg-red-600 text-white px-4 py-3 rounded-lg transition-colors text-sm font-bold shadow-lg border border-red-500/50 flex items-center gap-2">
-                    ⚠️ Resetear BD (PostgreSQL)
+                    ⚠️ Resetear BD
                 </button>
 
                 <button onclick="limpiarEstado()" class="bg-orange-600/80 hover:bg-orange-500 text-white px-4 py-3 rounded-lg transition-colors text-sm font-bold shadow-lg border border-orange-500/50">
@@ -94,15 +139,10 @@ router.get('/', (req, res) => {
         </div>
 
         <script>
-            let hardware = {
-                gateways: [],
-                nodos: []
-            };
-
+            let hardware = { gateways: [], nodos: [] };
             const INTERVALO_PING = 10000; 
             const DESGASTE_BATERIA = 0.5; 
 
-            // --- LOCAL STORAGE Y RESET DE BD ---
             function guardarEstado() {
                 const copia = JSON.parse(JSON.stringify(hardware));
                 copia.gateways.forEach(g => delete g.timer);
@@ -123,9 +163,7 @@ router.get('/', (req, res) => {
                         });
                         logTerminal('Sistema', 'Estado recuperado de memoria.', 'text-green-400 font-bold');
                         renderUI();
-                    } catch (e) {
-                        console.error('Error cargando estado', e);
-                    }
+                    } catch (e) { console.error(e); }
                 }
             }
 
@@ -135,42 +173,45 @@ router.get('/', (req, res) => {
                 hardware.nodos.forEach(n => clearInterval(n.timer));
                 hardware = { gateways: [], nodos: [] };
                 renderUI();
-                logTerminal('Sistema', 'Memoria de pantalla borrada.', 'text-amber-500 font-bold');
             }
 
             async function resetearBD() {
-                const confirmacion = confirm("⚠️ ATENCIÓN: Esto borrará TODOS los Nodos, Gateways y el Historial de Lecturas de PostgreSQL para empezar de cero.\\n\\n¿Deseas continuar?");
+                const confirmacion = confirm("⚠️ ATENCIÓN: Esto borrará TODOS los Nodos, Gateways y el Historial de PostgreSQL.\\n\\n¿Deseas continuar?");
                 if (!confirmacion) return;
 
                 try {
-                    // Calculamos la ruta relativa correctamente
                     const basePath = window.location.pathname.endsWith('/') ? window.location.pathname : window.location.pathname + '/';
                     const response = await fetch(basePath + 'reset-db', { method: 'DELETE' });
                     
                     if (response.ok) {
-                        limpiarEstado(); // Limpiamos también la memoria visual
-                        logTerminal('SISTEMA', 'BASE DE DATOS FORMATEADA CON ÉXITO. Sistema en 0.', 'text-red-500 font-bold text-lg');
-                        alert("✅ Base de datos limpiada con éxito. Ya puedes subir tu JSON nuevamente.");
-                    } else {
-                        alert("❌ Error al borrar la base de datos.");
-                    }
-                } catch (error) {
-                    console.error("Error de conexión:", error);
-                    alert("❌ Error de red conectando con el backend.");
-                }
+                        limpiarEstado();
+                        logTerminal('SISTEMA', 'BASE DE DATOS FORMATEADA CON ÉXITO.', 'text-red-500 font-bold text-lg');
+                        alert("✅ Base de datos limpiada con éxito.");
+                    } else { alert("❌ Error al borrar la base de datos."); }
+                } catch (error) { alert("❌ Error de red."); }
             }
-            // ------------------------------
 
-            // IMPORTAR EL JSON
+            // --- LÓGICA DE IMPORTACIÓN ACTUALIZADA CON TU IDEA ---
             function importarHardware(event) {
                 const file = event.target.files[0];
                 if (!file) return;
 
                 const reader = new FileReader();
-                reader.onload = (e) => {
+                reader.onload = async (e) => {
                     try {
                         const data = JSON.parse(e.target.result);
                         
+                        // 1. Enviamos el JSON directamente a PostgreSQL PRIMERO
+                        const basePath = window.location.pathname.endsWith('/') ? window.location.pathname : window.location.pathname + '/';
+                        const res = await fetch(basePath + 'aprovisionar', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(data)
+                        });
+
+                        if (!res.ok) throw new Error("Error en aprovisionamiento BD");
+
+                        // 2. Si la BD lo aceptó, lo dibujamos en pantalla
                         hardware.gateways = (data.gateways || []).map(gw => ({
                             ...gw, tipo: 'GATEWAY', encendido: false, senalDbm: -68, segundosMalaSenal: 0, timer: null 
                         }));
@@ -179,21 +220,20 @@ router.get('/', (req, res) => {
                             ...nodo, tipo: 'NODO', encendido: false, bateria: 100, cavitacion: false, senalDbm: -70, segundosMalaSenal: 0, timer: null 
                         }));
 
-                        logTerminal('Sistema', 'Inventario físico cargado. Equipos desconectados.', 'text-blue-400');
+                        logTerminal('Sistema', 'Equipos importados a PostgreSQL correctamente. Nodos en estado inactivo.', 'text-blue-400 font-bold');
                         guardarEstado();
                         renderUI();
                     } catch (err) {
-                        alert("Error leyendo JSON");
+                        alert("Error leyendo o insertando JSON");
+                        console.error(err);
                     }
                 };
                 reader.readAsText(file);
                 event.target.value = '';
             }
 
-            // MOTOR DE SEÑAL DINÁMICA
             setInterval(() => {
                 const dispositivosActivos = [...hardware.gateways, ...hardware.nodos].filter(d => d.encendido);
-                
                 dispositivosActivos.forEach(item => {
                     if (item.segundosMalaSenal > 0) {
                         item.segundosMalaSenal--;
@@ -206,7 +246,6 @@ router.get('/', (req, res) => {
                             item.senalDbm = -65 - Math.floor(Math.random() * 18);
                         }
                     }
-
                     const el = document.getElementById('signal-val-' + item.id);
                     if (el) {
                         const esCritica = item.senalDbm <= -100;
@@ -216,7 +255,6 @@ router.get('/', (req, res) => {
                 });
             }, 1000);
 
-            // MODIFICAR BATERÍA MANUALMENTE
             function setBateria(id, valor) {
                 const nodo = hardware.nodos.find(x => x.id === id);
                 if (nodo) {
@@ -227,7 +265,6 @@ router.get('/', (req, res) => {
                 }
             }
 
-            // INYECTAR EVENTO DE CAVITACIÓN
             function toggleCavitacion(id) {
                 const nodo = hardware.nodos.find(x => x.id === id);
                 if (nodo) {
@@ -238,7 +275,6 @@ router.get('/', (req, res) => {
                 }
             }
 
-            // DIBUJAR LA INTERFAZ
             function renderUI() {
                 const drawItem = (d, type) => {
                     const isAlert = type === 'nodos' && d.cavitacion;
@@ -287,11 +323,10 @@ router.get('/', (req, res) => {
                     \`;
                 };
 
-                document.getElementById('lista-gateways').innerHTML = hardware.gateways.map(gw => drawItem(gw, 'gateways')).join('') || '<p class="text-base text-slate-600 p-4 bg-slate-900 rounded-lg">Lista vacía. Importa un JSON.</p>';
-                document.getElementById('lista-nodos').innerHTML = hardware.nodos.map(n => drawItem(n, 'nodos')).join('') || '<p class="text-base text-slate-600 p-4 bg-slate-900 rounded-lg">Lista vacía. Importa un JSON.</p>';
+                document.getElementById('lista-gateways').innerHTML = hardware.gateways.map(gw => drawItem(gw, 'gateways')).join('') || '<p class="text-base text-slate-600 p-4 bg-slate-900 rounded-lg">Lista vacía.</p>';
+                document.getElementById('lista-nodos').innerHTML = hardware.nodos.map(n => drawItem(n, 'nodos')).join('') || '<p class="text-base text-slate-600 p-4 bg-slate-900 rounded-lg">Lista vacía.</p>';
             }
 
-            // ENCENDER / APAGAR INDIVIDUAL
             function toggleDispositivo(tipoLista, id) {
                 const item = hardware[tipoLista].find(x => x.id === id);
                 if (!item) return;
@@ -305,7 +340,6 @@ router.get('/', (req, res) => {
                 } else {
                     clearInterval(item.timer);
                     item.timer = null;
-                    
                     if (item.tipo === 'NODO' && item.bateria > 0) {
                         transmitirPaquete(item, true); 
                     }
@@ -315,7 +349,6 @@ router.get('/', (req, res) => {
                 renderUI();
             }
 
-            // ENCENDER / APAGAR TODOS
             function toggleGlobal(tipoLista) {
                 const encendidos = hardware[tipoLista].filter(x => x.encendido).length;
                 const turnOn = encendidos < (hardware[tipoLista].length / 2);
@@ -326,7 +359,6 @@ router.get('/', (req, res) => {
                 guardarEstado();
             }
 
-            // MOTOR DE TRANSMISIÓN
             async function transmitirPaquete(dispositivo, forzarApagado = false) {
                 let payload = {
                     idNodo: dispositivo.id,
@@ -362,12 +394,12 @@ router.get('/', (req, res) => {
                         );
                     }
                 } catch (error) {
-                    logTerminal(dispositivo.id, 'TX FALLIDA (Rechazo de Red)', 'text-red-500');
+                    logTerminal(dispositivo.id, 'TX FALLIDA', 'text-red-500');
                 }
                 
                 if (dispositivo.tipo === 'NODO' && dispositivo.bateria <= 0 && dispositivo.encendido) {
                     toggleDispositivo('nodos', dispositivo.id);
-                    logTerminal(dispositivo.id, 'Batería agotada. Equipo inoperativo.', 'text-red-500 font-bold');
+                    logTerminal(dispositivo.id, 'Batería agotada.', 'text-red-500 font-bold');
                 }
                 
                 if(dispositivo.tipo === 'NODO') {
@@ -389,7 +421,7 @@ router.get('/', (req, res) => {
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ idNodo })
                 });
-                logTerminal(idNodo, 'Respuesta WhatsApp: Agricultor activó riego.', 'text-blue-400 font-bold');
+                logTerminal(idNodo, 'WhatsApp: Agricultor activó riego.', 'text-blue-400 font-bold');
             }            
         </script>
     </body>
