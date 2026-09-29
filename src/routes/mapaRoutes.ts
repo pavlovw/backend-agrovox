@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { prisma } from '../index';
+import { prisma, io } from '../index';
 
 const router = Router();
 
@@ -38,6 +38,7 @@ router.post('/cliente/:clienteId/importar', async (req, res) => {
     const clienteId = parseInt(req.params.clienteId);
     
     // Ahora leemos infraestructuras en plural
+    io.emit('mapa-importado', { clienteId });
     const { infraestructuras, sectores } = req.body;
 
     // 1. Insertar Infraestructuras (Iterando sobre el array)
@@ -124,6 +125,7 @@ router.put('/nodos/:id/asignar', async (req, res) => {
       where: { id: req.params.id },
       data: { sectorId }
     });
+    io.emit('nodo-asignado', { nodoId: req.params.id, sectorId });
     res.json({ mensaje: 'Nodo vinculado correctamente' });
   } catch (error) {
     console.error('Error asignando nodo:', error);

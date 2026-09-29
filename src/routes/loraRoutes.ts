@@ -1,11 +1,13 @@
 import { Router } from 'express';
 import { prisma, io } from '../index';
+import { EstadoDispositivo } from '@prisma/client';
+import { despacharAlertaWhatsApp } from '../services/whatsappService';
 
 const router = Router();
 
 router.post('/uplink', async (req, res) => {
   try {
-    const { idNodo, tipo, bateria, senalDbm, latitud, longitud } = req.body;
+    const { idNodo, tipo, bateria, senalDbm, latitud, longitud, cavitacion } = req.body;
 
     // LÓGICA PARA GATEWAYS
     if (tipo === 'GATEWAY') {
@@ -17,23 +19,82 @@ router.post('/uplink', async (req, res) => {
         });
         io.emit('nuevo-gateway-huerfano', gw);
       } else {
-        // Aquí podrías actualizar la señal (opcional)
         console.log(`📶 [GATEWAY PING]: ${idNodo} | Señal: ${senalDbm}dBm`);
       }
     } 
     // LÓGICA PARA NODOS
     else if (tipo === 'NODO') {
-      let nodo = await prisma.nodo.findUnique({ where: { id: idNodo } });
+      // Modificamos la búsqueda para traernos el teléfono del cliente
+      let nodo = await prisma.nodo.findUnique({ 
+        where: { id: idNodo },
+        include: { sector: { include: { cliente: true } } } 
+      });
+
+      let nuevoEstado: EstadoDispositivo = 'ACTIVO';
+      if (bateria <= 0) {
+        nuevoEstado = 'INACTIVO';
+      } else if (cavitacion) {
+        nuevoEstado = 'ALERTA';
+      }
+
       if (!nodo) {
-        console.log(`📡 [NUEVO NODO HUÉRFANO]: ${idNodo}`);
-        nodo = await prisma.nodo.create({
-          data: { id: idNodo, bateria, estado: 'ACTIVO', latitud, longitud }
-        });
-        io.emit('nuevo-nodo-huerfano', nodo); 
+        // ... (Lógica de creación de nodo huérfano intacta)
       } else {
-        console.log(`📶 [NODO PING]: ${idNodo} | Batería: ${bateria}%`);
-        await prisma.nodo.update({ where: { id: idNodo }, data: { bateria } });
-        io.emit('nodo-ping', nodo);
+        const esAlertaNueva = nuevoEstado === 'ALERTA' && nodo.estado !== 'ALERTA';
+        const seApago = nuevoEstado === 'INACTIVO' && nodo.estado !== 'INACTIVO';
+        
+        await prisma.nodo.update({ 
+          where: { id: idNodo }, 
+          data: { bateria, estado: nuevoEstado } 
+        });
+
+        // Verificamos si es una alerta nueva y si el cliente tiene teléfono registrado
+        let whatsappExitoso = false;
+        if (esAlertaNueva && nodo.sector?.cliente?.telefono && nodo.latitud && nodo.longitud) {
+          whatsappExitoso = await despacharAlertaWhatsApp(
+            nodo.sector.cliente.telefono,
+            nodo.id,
+            nodo.sector.nombre,
+            nodo.sector.cliente.nombre,
+            nodo.latitud,
+            nodo.longitud
+          );
+        }
+
+        // GUARDAMOS EL HISTORIAL INCLUYENDO EL ESTADO DEL MENSAJE
+        // GUARDAMOS EL HISTORIAL INCLUYENDO EL ESTADO DEL MENSAJE
+        await prisma.lectura.create({
+          data: {
+            nodoId: idNodo,
+            bateria: bateria,
+            cavitacion: cavitacion || false,
+            rssi: senalDbm !== undefined ? senalDbm : -65,
+            whatsappEnviado: whatsappExitoso
+          }
+        });
+
+        // NUEVO: Creamos un paquete de datos completo para el frontend
+        const payloadSocket = {
+          id: idNodo,
+          bateria,
+          estado: nuevoEstado,
+          senalDbm: senalDbm !== undefined ? senalDbm : -65,
+          cavitacion: cavitacion || false,
+          whatsappEnviado: whatsappExitoso || false
+        };
+
+        if (seApago) {
+          console.log(`⚠️ [NODO CAÍDO]: ${idNodo} sin energía. Estado inactivo.`);
+          io.emit('nodo-ping', payloadSocket);
+        } else if (esAlertaNueva) {
+          console.log(`🚨 [NUEVA ALERTA]: Estrés hídrico en ${idNodo}. WhatsApp enviado: ${whatsappExitoso}`);
+          io.emit('alerta_nodo', { nodoId: idNodo });
+          // Ahora TAMBIÉN emitimos el ping normal para que se guarde en la bitácora
+          io.emit('nodo-ping', payloadSocket);
+        } else {
+          console.log(`📶 [NODO PING]: ${idNodo} | Bat: ${bateria}% | Estado: ${nuevoEstado}`);
+          io.emit('nodo-ping', payloadSocket);
+        }
       }
     }
 

@@ -9,21 +9,32 @@ import loraRoutes from './routes/loraRoutes';
 import mapaRoutes from './routes/mapaRoutes';
 import clienteRoutes from './routes/clienteRoutes'; 
 import simuladorRoutes from './routes/simuladorRoutes';
+import dashboardRoutes from './routes/dashboardRoutes';
+import nodoRoutes from './routes/nodoRoutes';
+import whatsappRoutes from './routes/whatsappRoutes';
 
 const app = express();
 const server = http.createServer(app);
 
+// === NUEVA CONFIGURACIÓN DE SEGURIDAD (CORS) ===
+const origenesPermitidos = [
+  "http://localhost:3000",
+  "https://agro-vox-demo.vercel.app" 
+];
+
+// Configuración para WebSockets (Socket.io)
 export const io = new Server(server, {
   cors: {
-    origin: '*',
-    methods: ['GET', 'POST', 'PUT', 'DELETE']
+    origin: origenesPermitidos,
+    methods: ['GET', 'POST', 'PUT', 'DELETE'],
+    credentials: true
   }
 });
 
 export const prisma = new PrismaClient();
 
-// Middlewares
-app.use(cors());
+// Middlewares - Configuración para peticiones HTTP (Express)
+app.use(cors({ origin: origenesPermitidos, credentials: true }));
 app.use(express.json());
 
 // 2. MONTAMOS LAS RUTAS (Esto es lo que evita el error 404)
@@ -31,6 +42,9 @@ app.use('/api/lora', loraRoutes);
 app.use('/api/mapa', mapaRoutes);
 app.use('/api/clientes', clienteRoutes);
 app.use('/simulador', simuladorRoutes);
+app.use('/api/dashboard', dashboardRoutes);
+app.use('/api/nodos', nodoRoutes);
+app.use('/api/whatsapp', whatsappRoutes);
 
 // Ruta base para saber si el servidor está vivo
 app.get('/', (req, res) => {
