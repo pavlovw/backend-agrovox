@@ -9,9 +9,14 @@ router.post('/uplink', async (req, res) => {
   try {
     let { idNodo, tipo, bateria, senalDbm, latitud, longitud, cavitacion } = req.body;
 
-    if (bateria !== undefined) {
-      bateria = Math.round(bateria);
-    }
+    // --- BLINDAJE DE TIPOS PARA PRISMA (POSTGRESQL) ---
+    // Nos aseguramos de que todo sea un número puro antes de guardarlo
+    if (bateria !== undefined && bateria !== null) bateria = Math.round(parseFloat(bateria));
+    if (latitud !== undefined && latitud !== null) latitud = parseFloat(latitud);
+    if (longitud !== undefined && longitud !== null) longitud = parseFloat(longitud);
+    if (senalDbm !== undefined && senalDbm !== null) senalDbm = Math.round(parseFloat(senalDbm));
+    cavitacion = Boolean(cavitacion);
+    // --------------------------------------------------
 
     // LÓGICA PARA GATEWAYS
     if (tipo === 'GATEWAY') {
