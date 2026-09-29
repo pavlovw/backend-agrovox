@@ -109,7 +109,7 @@ router.post('/uplink', async (req, res) => {
 
     res.status(200).json({ mensaje: 'Paquete procesado' });
   } catch (error) {
-    console.error('Error procesando paquete LoRa:', error);
+    console.error('❌ Error CRÍTICO procesando paquete LoRa:', error); // Esto te dirá exactamente qué columna falló
     res.status(500).json({ error: 'Error interno procesando uplink' });
   }
 });
