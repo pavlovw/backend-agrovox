@@ -1,6 +1,21 @@
 import { Router } from 'express';
+import { prisma } from '../index'; // Importamos prisma para poder borrar la BD
 
 const router = Router();
+
+// NUEVO: Endpoint para destruir todo el hardware y las lecturas y empezar de 0
+router.delete('/reset-db', async (req, res) => {
+    try {
+        // Borramos en orden para respetar las relaciones
+        await prisma.lectura.deleteMany({});
+        await prisma.nodo.deleteMany({});
+        await prisma.gateway.deleteMany({});
+        res.status(200).json({ mensaje: 'Base de datos en cero' });
+    } catch (error) {
+        console.error('Error reseteando BD:', error);
+        res.status(500).json({ error: 'Error reseteando PostgreSQL' });
+    }
+});
 
 router.get('/', (req, res) => {
   res.send(`
@@ -17,11 +32,16 @@ router.get('/', (req, res) => {
             <h1 class="text-3xl font-bold text-white flex items-center gap-4">
                 📡 Simulador de Hardware (Zero-Touch)
             </h1>
-            <div class="flex gap-4 items-center">
-                <button onclick="limpiarEstado()" class="bg-red-600/80 hover:bg-red-500 text-white px-4 py-3 rounded-lg transition-colors text-sm font-bold shadow-lg border border-red-500/50">
-                    🗑️ Limpiar Memoria
+            <div class="flex gap-3 items-center">
+                <button onclick="resetearBD()" class="bg-red-800 hover:bg-red-600 text-white px-4 py-3 rounded-lg transition-colors text-sm font-bold shadow-lg border border-red-500/50 flex items-center gap-2">
+                    ⚠️ Resetear BD (PostgreSQL)
                 </button>
-                <label class="bg-blue-600 hover:bg-blue-500 text-white px-6 py-3 rounded-lg cursor-pointer transition-colors text-base font-bold shadow-lg">
+
+                <button onclick="limpiarEstado()" class="bg-orange-600/80 hover:bg-orange-500 text-white px-4 py-3 rounded-lg transition-colors text-sm font-bold shadow-lg border border-orange-500/50">
+                    🧹 Limpiar Pantalla
+                </button>
+
+                <label class="bg-blue-600 hover:bg-blue-500 text-white px-6 py-3 rounded-lg cursor-pointer transition-colors text-base font-bold shadow-lg ml-2">
                     📥 Importar Red Física (JSON)
                     <input type="file" id="fileInput" accept=".json" class="hidden" onchange="importarHardware(event)">
                 </label>
@@ -82,9 +102,8 @@ router.get('/', (req, res) => {
             const INTERVALO_PING = 10000; 
             const DESGASTE_BATERIA = 0.5; 
 
-            // --- LOCAL STORAGE (NUEVO) ---
+            // --- LOCAL STORAGE Y RESET DE BD ---
             function guardarEstado() {
-                // Clonamos para evitar guardar los timers de setInterval en memoria
                 const copia = JSON.parse(JSON.stringify(hardware));
                 copia.gateways.forEach(g => delete g.timer);
                 copia.nodos.forEach(n => delete n.timer);
@@ -96,14 +115,13 @@ router.get('/', (req, res) => {
                 if (memoria) {
                     try {
                         hardware = JSON.parse(memoria);
-                        // Reactivamos los motores de transmisión si estaban encendidos
                         hardware.gateways.forEach(gw => {
                             if (gw.encendido) gw.timer = setInterval(() => transmitirPaquete(gw), INTERVALO_PING);
                         });
                         hardware.nodos.forEach(nodo => {
                             if (nodo.encendido) nodo.timer = setInterval(() => transmitirPaquete(nodo), INTERVALO_PING);
                         });
-                        logTerminal('Sistema', 'Estado anterior recuperado de la memoria local.', 'text-green-400 font-bold');
+                        logTerminal('Sistema', 'Estado recuperado de memoria.', 'text-green-400 font-bold');
                         renderUI();
                     } catch (e) {
                         console.error('Error cargando estado', e);
@@ -117,7 +135,29 @@ router.get('/', (req, res) => {
                 hardware.nodos.forEach(n => clearInterval(n.timer));
                 hardware = { gateways: [], nodos: [] };
                 renderUI();
-                logTerminal('Sistema', 'Memoria del simulador borrada exitosamente.', 'text-amber-500 font-bold');
+                logTerminal('Sistema', 'Memoria de pantalla borrada.', 'text-amber-500 font-bold');
+            }
+
+            async function resetearBD() {
+                const confirmacion = confirm("⚠️ ATENCIÓN: Esto borrará TODOS los Nodos, Gateways y el Historial de Lecturas de PostgreSQL para empezar de cero.\\n\\n¿Deseas continuar?");
+                if (!confirmacion) return;
+
+                try {
+                    // Calculamos la ruta relativa correctamente
+                    const basePath = window.location.pathname.endsWith('/') ? window.location.pathname : window.location.pathname + '/';
+                    const response = await fetch(basePath + 'reset-db', { method: 'DELETE' });
+                    
+                    if (response.ok) {
+                        limpiarEstado(); // Limpiamos también la memoria visual
+                        logTerminal('SISTEMA', 'BASE DE DATOS FORMATEADA CON ÉXITO. Sistema en 0.', 'text-red-500 font-bold text-lg');
+                        alert("✅ Base de datos limpiada con éxito. Ya puedes subir tu JSON nuevamente.");
+                    } else {
+                        alert("❌ Error al borrar la base de datos.");
+                    }
+                } catch (error) {
+                    console.error("Error de conexión:", error);
+                    alert("❌ Error de red conectando con el backend.");
+                }
             }
             // ------------------------------
 
@@ -132,23 +172,11 @@ router.get('/', (req, res) => {
                         const data = JSON.parse(e.target.result);
                         
                         hardware.gateways = (data.gateways || []).map(gw => ({
-                            ...gw, 
-                            tipo: 'GATEWAY', 
-                            encendido: false, 
-                            senalDbm: -68, 
-                            segundosMalaSenal: 0, 
-                            timer: null 
+                            ...gw, tipo: 'GATEWAY', encendido: false, senalDbm: -68, segundosMalaSenal: 0, timer: null 
                         }));
                         
                         hardware.nodos = (data.nodos || []).map(nodo => ({
-                            ...nodo, 
-                            tipo: 'NODO', 
-                            encendido: false, 
-                            bateria: 100, 
-                            cavitacion: false, 
-                            senalDbm: -70, 
-                            segundosMalaSenal: 0, 
-                            timer: null 
+                            ...nodo, tipo: 'NODO', encendido: false, bateria: 100, cavitacion: false, senalDbm: -70, segundosMalaSenal: 0, timer: null 
                         }));
 
                         logTerminal('Sistema', 'Inventario físico cargado. Equipos desconectados.', 'text-blue-400');
@@ -162,7 +190,7 @@ router.get('/', (req, res) => {
                 event.target.value = '';
             }
 
-            // MOTOR DE SEÑAL DINÁMICA CADA SEGUNDO
+            // MOTOR DE SEÑAL DINÁMICA
             setInterval(() => {
                 const dispositivosActivos = [...hardware.gateways, ...hardware.nodos].filter(d => d.encendido);
                 
@@ -183,9 +211,7 @@ router.get('/', (req, res) => {
                     if (el) {
                         const esCritica = item.senalDbm <= -100;
                         el.innerText = '📶 ' + item.senalDbm + ' dBm';
-                        el.className = esCritica 
-                            ? 'text-amber-400 font-bold animate-pulse' 
-                            : 'text-slate-400 font-medium';
+                        el.className = esCritica ? 'text-amber-400 font-bold animate-pulse' : 'text-slate-400 font-medium';
                     }
                 });
             }, 1000);
@@ -283,7 +309,6 @@ router.get('/', (req, res) => {
                     if (item.tipo === 'NODO' && item.bateria > 0) {
                         transmitirPaquete(item, true); 
                     }
-                    
                     logTerminal(item.id, 'Dispositivo APAGADO', 'text-red-500');
                 }
                 guardarEstado();
@@ -317,7 +342,6 @@ router.get('/', (req, res) => {
                     } else {
                         dispositivo.bateria = Math.max(0, dispositivo.bateria - DESGASTE_BATERIA);
                     }
-                    
                     payload.bateria = dispositivo.bateria;
                     payload.cavitacion = dispositivo.cavitacion; 
                 }
@@ -349,7 +373,7 @@ router.get('/', (req, res) => {
                 if(dispositivo.tipo === 'NODO') {
                     const batElement = document.getElementById('bat-val-' + dispositivo.id);
                     if(batElement) batElement.innerText = dispositivo.bateria.toFixed(1) + '%';
-                    guardarEstado(); // Guardamos el pequeño desgaste en memoria
+                    guardarEstado();
                 }
             }
 
