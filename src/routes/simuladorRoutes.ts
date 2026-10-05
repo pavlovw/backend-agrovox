@@ -431,9 +431,8 @@ router.get('/', (req, res) => {
                 } else {
                     clearInterval(item.timer);
                     item.timer = null;
-                    if (item.tipo === 'NODO' && item.bateria > 0) {
-                        transmitirPaquete(item, true); 
-                    }
+                    // Avisamos al backend que el equipo (Nodo o Gateway) se apagó
+                    transmitirPaquete(item, true); 
                     logTerminal(item.id, 'Dispositivo APAGADO', 'text-red-500');
                 }
                 guardarEstado();

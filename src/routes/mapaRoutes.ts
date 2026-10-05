@@ -139,7 +139,10 @@ router.put('/gateways/:id/asignar', async (req, res) => {
     const { clienteId } = req.body;
     await prisma.gateway.update({
       where: { id: req.params.id },
-      data: { clienteId }
+      data: { 
+        clienteId,
+        estado: 'ACTIVO' // <-- Asegura que al reclamarlo quede Online de inmediato
+      }
     });
     res.json({ mensaje: 'Gateway vinculado correctamente' });
   } catch (error) {

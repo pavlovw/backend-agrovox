@@ -9,21 +9,30 @@ const router = Router();
 
 router.post('/uplink', async (req, res) => {
   try {
-    const { idNodo, tipo, bateria, senalDbm, latitud, longitud, cavitacion } = req.body;
+    const { idNodo, tipo, bateria, senalDbm, latitud, longitud, cavitacion,forzarApagado } = req.body;
 
     // LÓGICA PARA GATEWAYS
+// LÓGICA PARA GATEWAYS
     if (tipo === 'GATEWAY') {
       let gw = await prisma.gateway.findUnique({ where: { id: idNodo } });
+      const nuevoEstadoGw = forzarApagado ? 'INACTIVO' : 'ACTIVO';
+
       if (!gw) {
         console.log(`📡 [NUEVO GATEWAY HUÉRFANO]: ${idNodo}`);
         gw = await prisma.gateway.create({
-          data: { id: idNodo, estado: 'ACTIVO', latitud, longitud }
+          data: { id: idNodo, estado: nuevoEstadoGw, latitud, longitud }
         });
         io.emit('nuevo-gateway-huerfano', gw);
       } else {
-        console.log(`📶 [GATEWAY PING]: ${idNodo} | Señal: ${senalDbm}dBm`);
+        // ¡AQUÍ ESTABA EL BUG! Ahora sí actualizamos su estado a ACTIVO (o INACTIVO) en PostgreSQL
+        gw = await prisma.gateway.update({
+          where: { id: idNodo },
+          data: { estado: nuevoEstadoGw }
+        });
+        console.log(`📶 [GATEWAY PING]: ${idNodo} | Estado: ${nuevoEstadoGw} | Señal: ${senalDbm}dBm`);
+        io.emit('gateway-ping', gw);
       }
-    } 
+    }
     // LÓGICA PARA NODOS
     else if (tipo === 'NODO') {
       // Modificamos la búsqueda para traernos el teléfono del cliente
