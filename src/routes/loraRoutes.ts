@@ -101,10 +101,6 @@ router.post('/uplink', async (req, res) => {
     }
 
     res.status(200).json({ mensaje: 'Paquete procesado' });
-    const nuevasAlertas = await sincronizarAlertasDeRed();
-    if (nuevasAlertas.length > 0) {
-      io.emit('nueva-alerta-sistema', nuevasAlertas[0]);
-    }
   } catch (error) {
     console.error('Error procesando paquete LoRa:', error);
     res.status(500).json({ error: 'Error interno procesando uplink' });

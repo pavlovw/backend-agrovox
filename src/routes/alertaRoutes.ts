@@ -5,121 +5,114 @@ import { obtenerConfiguracionActual } from './configuracionRoutes';
 const router = Router();
 
 // Función auxiliar para auditar el estado actual de la red y crear alertas si no existen
+let sincronizando = false;
 export const sincronizarAlertasDeRed = async () => {
+  if (sincronizando) return [];
+  sincronizando = true;
+
+  try {
     const config = await obtenerConfiguracionActual();
-  const UMBRAL_BATERIA = config.bateriaMinima; // Ahora es dinámico (ej. 20%)
-  const UMBRAL_RSSI = config.rssiMinimoDbm;
+    const UMBRAL_BATERIA = config.bateriaMinima ?? 20;
+    const UMBRAL_RSSI = config.rssiMinimoDbm ?? -110;
 
-
-  const nodos = await prisma.nodo.findMany({
-    include: {
-      sector: { include: { cliente: true } },
-      lecturas: { orderBy: { createdAt: 'desc' }, take: 1 }
-    }
-  });
-
-  const gateways = await prisma.gateway.findMany({
-    include: { cliente: true }
-  });
-
-  const alertasActivas = await prisma.alertaSistema.findMany({
-    where: { estado: 'pending' }
-  });
-
-  const existeAlertaActiva = (dispositivo: string, categoria: string) =>
-    alertasActivas.some(a => a.dispositivo === dispositivo && a.categoria === categoria);
-
-  const nuevasAlertas = [];
-
-  for (const n of nodos) {
-    const ubicacion = n.sector
-      ? `${n.sector.cliente?.nombre || 'Predio'} • ${n.sector.nombre}`
-      : 'Sin asignar (Inventario / Terreno)';
-
-    // 1. Nodo sin energía / Inactivo
-    if ((n.estado === 'INACTIVO' || (n.bateria !== null && n.bateria <= 0)) && !existeAlertaActiva(n.id, 'CONECTIVIDAD')) {
-      const alerta = await prisma.alertaSistema.create({
-        data: {
-          titulo: 'Nodo fuera de línea (Pérdida de comunicación)',
-          descripcion: 'El dispositivo dejó de emitir paquetes LoRaWAN o agotó su reserva energética (0%). Requiere inspección en terreno.',
-          severidad: 'high',
-          estado: 'pending',
-          categoria: 'CONECTIVIDAD',
-          dispositivo: n.id,
-          ubicacion
+    // Ejecutamos las 3 lecturas EN PARALELO (3 veces más rápido en Render)
+    const [nodos, gateways, alertasActivas] = await Promise.all([
+      prisma.nodo.findMany({
+        include: {
+          sector: { include: { cliente: true } },
+          lecturas: { orderBy: { createdAt: 'desc' }, take: 1 }
         }
-      });
-      nuevasAlertas.push(alerta);
-    }
-    // 2. Batería Solar Baja (1% a 20%)
-    else if (n.bateria !== null && n.bateria > 0 && n.bateria <= UMBRAL_BATERIA && !existeAlertaActiva(n.id, 'ENERGIA')) {
-      const alerta = await prisma.alertaSistema.create({
-        data: {
-          titulo: `Batería solar bajo el umbral (${n.bateria}%)`,
-          descripcion: 'Descarga pronunciada detectada. Revisar orientación o limpieza del panel solar.',
-          severidad: n.bateria <= 10 ? 'high' : 'medium',
-          estado: 'pending',
-          categoria: 'ENERGIA',
-          dispositivo: n.id,
-          ubicacion
-        }
-      });
-      nuevasAlertas.push(alerta);
+      }),
+      prisma.gateway.findMany({ include: { cliente: true } }),
+      prisma.alertaSistema.findMany({ where: { estado: 'pending' } })
+    ]);
+
+    const existeAlertaActiva = (dispositivo: string, categoria: string) =>
+      alertasActivas.some(a => a.dispositivo === dispositivo && a.categoria === categoria);
+
+    const nuevasAlertas = [];
+
+    for (const n of nodos) {
+      // Si el nodo está en el simulador pero jamás se ha encendido ni asignado, lo ignoramos
+      if (!n.sectorId && n.estado === 'INACTIVO' && n.lecturas.length === 0) {
+        continue;
+      }
+
+      const ubicacion = n.sector
+        ? `${n.sector.cliente?.nombre || 'Predio'} • ${n.sector.nombre}`
+        : 'Sin asignar (Inventario / Terreno)';
+
+      if ((n.estado === 'INACTIVO' || (n.bateria !== null && n.bateria <= 0)) && !existeAlertaActiva(n.id, 'CONECTIVIDAD')) {
+        const alerta = await prisma.alertaSistema.create({
+          data: {
+            titulo: 'Nodo fuera de línea (Pérdida de comunicación)',
+            descripcion: 'El dispositivo dejó de emitir paquetes LoRaWAN o agotó su batería (0%).',
+            severidad: 'high',
+            estado: 'pending',
+            categoria: 'CONECTIVIDAD',
+            dispositivo: n.id,
+            ubicacion
+          }
+        });
+        alertasActivas.push(alerta);
+        nuevasAlertas.push(alerta);
+      } else if (n.bateria !== null && n.bateria > 0 && n.bateria <= UMBRAL_BATERIA && !existeAlertaActiva(n.id, 'ENERGIA')) {
+        const alerta = await prisma.alertaSistema.create({
+          data: {
+            titulo: `Batería solar bajo el umbral (${n.bateria}%)`,
+            descripcion: 'Descarga pronunciada detectada. Revisar orientación o limpieza del panel solar.',
+            severidad: n.bateria <= 10 ? 'high' : 'medium',
+            estado: 'pending',
+            categoria: 'ENERGIA',
+            dispositivo: n.id,
+            ubicacion
+          }
+        });
+        alertasActivas.push(alerta);
+        nuevasAlertas.push(alerta);
+      }
+
+      const ultimaLectura = n.lecturas[0];
+      if (ultimaLectura?.rssi && ultimaLectura.rssi <= UMBRAL_RSSI && !existeAlertaActiva(n.id, 'RED_LORA')) {
+        const alerta = await prisma.alertaSistema.create({
+          data: {
+            titulo: `Degradación crítica de señal LoRa (${ultimaLectura.rssi} dBm)`,
+            descripcion: 'Alta atenuación por follaje o distancia al Gateway.',
+            severidad: 'medium',
+            estado: 'pending',
+            categoria: 'RED_LORA',
+            dispositivo: n.id,
+            ubicacion
+          }
+        });
+        alertasActivas.push(alerta);
+        nuevasAlertas.push(alerta);
+      }
     }
 
-    // 3. Señal LoRaWAN degradada (RSSI <= -110 dBm)
-    const ultimaLectura = n.lecturas[0];
-    if (ultimaLectura?.rssi && ultimaLectura.rssi <= UMBRAL_RSSI && !existeAlertaActiva(n.id, 'RED_LORA')) {
-      const alerta = await prisma.alertaSistema.create({
-        data: {
-          titulo: `Degradación crítica de señal LoRa (${ultimaLectura.rssi} dBm)`,
-          descripcion: 'Alta atenuación por follaje o distancia al Gateway. Riesgo de pérdida de paquetes.',
-          severidad: 'medium',
-          estado: 'pending',
-          categoria: 'RED_LORA',
-          dispositivo: n.id,
-          ubicacion
-        }
-      });
-      nuevasAlertas.push(alerta);
+    for (const gw of gateways) {
+      if (!gw.clienteId) continue;
+      if (gw.estado === 'INACTIVO' && !existeAlertaActiva(gw.id, 'CONECTIVIDAD')) {
+        const alerta = await prisma.alertaSistema.create({
+          data: {
+            titulo: 'Caída de Gateway LoRa Central',
+            descripcion: 'El concentrador principal no responde al ping de red.',
+            severidad: 'high',
+            estado: 'pending',
+            categoria: 'CONECTIVIDAD',
+            dispositivo: gw.id,
+            ubicacion: gw.cliente?.nombre || 'Predio'
+          }
+        });
+        alertasActivas.push(alerta);
+        nuevasAlertas.push(alerta);
+      }
     }
 
-    // 4. Hardware Huérfano pendiente de vinculación
-    if (!n.sectorId && !existeAlertaActiva(n.id, 'SISTEMA')) {
-      const alerta = await prisma.alertaSistema.create({
-        data: {
-          titulo: 'Dispositivo Zero-Touch pendiente de asignación',
-          descripcion: 'El nodo está transmitiendo telemetría pero aún no ha sido vinculado a ningún polígono de riego.',
-          severidad: 'info',
-          estado: 'pending',
-          categoria: 'SISTEMA',
-          dispositivo: n.id,
-          ubicacion: 'Red LoRa Global (Sin Sector)'
-        }
-      });
-      nuevasAlertas.push(alerta);
-    }
+    return nuevasAlertas;
+  } finally {
+    sincronizando = false;
   }
-
-  for (const gw of gateways) {
-    const ubicacionGw = gw.cliente ? gw.cliente.nombre : 'Caseta sin asignar';
-    if (gw.estado === 'INACTIVO' && !existeAlertaActiva(gw.id, 'CONECTIVIDAD')) {
-      const alerta = await prisma.alertaSistema.create({
-        data: {
-          titulo: 'Caída de Gateway LoRa Central',
-          descripcion: 'El concentrador principal no responde al ping de red. Peligro de punto ciego en todo el predio.',
-          severidad: 'high',
-          estado: 'pending',
-          categoria: 'CONECTIVIDAD',
-          dispositivo: gw.id,
-          ubicacion: ubicacionGw
-        }
-      });
-      nuevasAlertas.push(alerta);
-    }
-  }
-
-  return nuevasAlertas;
 };
 
 // GET /api/alertas -> Obtiene todas las alertas (y sincroniza el estado actual de los equipos)
