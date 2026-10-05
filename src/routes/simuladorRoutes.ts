@@ -185,11 +185,19 @@ router.get('/', (req, res) => {
                                         <span id="signal-val-\${d.id}" class="\${senalColor}">📶 \${d.senalDbm} dBm</span>
                                     </p>
                                 </div>
-                                <button onclick="toggleDispositivo('\${type}', '\${d.id}')" 
-                                        class="\${d.encendido ? 'bg-red-500/20 text-red-400 hover:bg-red-500/30 border-red-500/30' : 'bg-green-500/20 text-green-400 hover:bg-green-500/30 border-green-500/30'} 
-                                               px-5 py-2.5 rounded-lg text-sm font-bold transition-colors w-32 text-center border-2">
-                                    \${d.encendido ? 'APAGAR' : 'ENCENDER'}
-                                </button>
+                                <div class="flex items-center gap-2">
+                                    <a href="/simulador/qr/\${d.id}?tipo=\${d.tipo}&lat=\${d.latitud || -33.7435}&lng=\${d.longitud || -70.7635}" 
+                                       target="_blank"
+                                       class="bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 border-2 border-emerald-500/30 px-3.5 py-2.5 rounded-lg text-sm font-bold transition-colors"
+                                       title="Abrir etiqueta QR individual de este equipo">
+                                        📱 QR
+                                    </a>
+                                    <button onclick="toggleDispositivo('\${type}', '\${d.id}')" 
+                                            class="\${d.encendido ? 'bg-red-500/20 text-red-400 hover:bg-red-500/30 border-red-500/30' : 'bg-green-500/20 text-green-400 hover:bg-green-500/30 border-green-500/30'} 
+                                                   px-5 py-2.5 rounded-lg text-sm font-bold transition-colors w-32 text-center border-2">
+                                        \${d.encendido ? 'APAGAR' : 'ENCENDER'}
+                                    </button>
+                                </div>
                             </div>
 
                             \${type === 'nodos' ? \`
@@ -320,6 +328,66 @@ router.get('/', (req, res) => {
                 logTerminal(idNodo, 'Respuesta WhatsApp: Agricultor activó riego.', 'text-blue-400 font-bold');
             }            
         </script>
+    </body>
+    </html>
+  `);
+});
+
+// ============================================================================
+// URL ÚNICA Y FIJA PARA MOSTRAR EL QR EN LA PANTALLA DEL PC
+// Entras manualmente a: http://localhost:3001/simulador/qr (o en tu URL de Render)
+// ============================================================================
+router.get('/qr', (req, res) => {
+  res.send(`
+    <!DOCTYPE html>
+    <html lang="es">
+    <head>
+      <meta charset="UTF-8" />
+      <title>Etiqueta QR de Nodo • AgroVox</title>
+      <script src="https://cdn.tailwindcss.com"></script>
+    </head>
+    <body class="bg-slate-950 text-white min-h-screen flex flex-col items-center justify-center p-6 font-mono">
+      
+      <div class="bg-white text-slate-900 rounded-3xl p-8 w-full max-w-sm shadow-2xl border-4 border-emerald-500 flex flex-col items-center text-center">
+        <div class="w-full flex justify-between items-center border-b-2 border-slate-200 pb-3 mb-6">
+          <span class="font-black text-lg tracking-tight text-emerald-700">AGROVOX IoT</span>
+          <span class="bg-slate-900 text-white text-xs font-bold px-3 py-1 rounded-full">NODO NUEVO</span>
+        </div>
+
+        <!-- Imagen del QR -->
+        <div class="bg-white p-2 rounded-2xl border-2 border-slate-200 shadow-inner">
+          <img id="qr-img" src="" alt="QR Nodo" class="w-64 h-64 object-contain" />
+        </div>
+
+        <!-- ID del nodo (Por defecto AGV-QR-101, editable si quieres probar otro) -->
+        <div class="mt-6 w-full">
+          <label class="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-1">ID del Nodo en el QR</label>
+          <input 
+            id="nodo-id-input" 
+            type="text" 
+            value="AGV-QR-101" 
+            oninput="generarQR()"
+            class="w-full text-center text-2xl font-black tracking-wider text-slate-900 bg-slate-100 border border-slate-300 rounded-xl py-2 focus:outline-none focus:border-emerald-500 uppercase"
+          />
+        </div>
+
+        <p class="text-xs text-slate-500 mt-4 font-sans">
+          Escanea este QR con tu teléfono. El celular tomará este ID y subirá su propia ubicación GPS a la base de datos.
+        </p>
+      </div>
+
+      <script>
+        function generarQR() {
+          const idNodo = document.getElementById('nodo-id-input').value.trim().toUpperCase() || 'AGV-QR-101';
+          // La URL dentro del QR solo lleva el ID del nodo
+          const urlActivacion = window.location.origin + '/api/lora/instalar-qr/' + encodeURIComponent(idNodo);
+          
+          document.getElementById('qr-img').src = 
+            'https://api.qrserver.com/v1/create-qr-code/?size=300x300&margin=10&data=' + encodeURIComponent(urlActivacion);
+        }
+
+        generarQR();
+      </script>
     </body>
     </html>
   `);

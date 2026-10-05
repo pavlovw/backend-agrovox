@@ -120,3 +120,40 @@ model Lectura {
   whatsappEnviado  Boolean  @default(false)
   riegoConfirmado Boolean  @default(false)
 }
+
+
+model AlertaSistema {
+  id          Int       @id @default(autoincrement())
+  titulo      String    // ej: "Batería solar crítica (12%)"
+  descripcion String?   // ej: "El panel solar no registra carga suficiente..."
+  severidad   String    // "high" | "medium" | "info"
+  estado      String    @default("pending") // "pending" | "resolved"
+  categoria   String    @default("ENERGIA") // "CONECTIVIDAD" | "ENERGIA" | "RED_LORA" | "SISTEMA"
+  dispositivo String    // ej: "AGV-042" o "GW-CEN-01"
+  ubicacion   String    // ej: "Fundo El Encanto • Sector 3"
+  createdAt   DateTime  @default(now())
+  resolvedAt  DateTime?
+}
+
+model ConfiguracionSistema {
+  id                  Int      @id @default(1)
+  bateriaMinima       Int      @default(20)   // % bajo el cual se dispara alerta de energía
+  voltajeReferenciaMv Int      @default(24)   // mV de umbral acústico TinyML por defecto
+  heartbeatTimeoutMin Int      @default(60)   // Minutos sin señal para marcar offline
+  rssiMinimoDbm       Int      @default(-110) // dBm mínimos antes de alerta de señal LoRa
+  whatsappHabilitado  Boolean  @default(true) // Master switch de envíos WhatsApp
+  autoResolverAlertas Boolean  @default(true) // Cierra el ticket si la batería sube del umbral
+  updatedAt           DateTime @updatedAt
+}
+
+model ContactoNotificacion {
+  id             Int      @id @default(autoincrement())
+  clienteId      Int?
+  sectorId       Int?
+  ubicacionLabel String   // ej: "Fundo El Encanto — Sector 3" o "Agrícola San Pedro — General"
+  nombre         String?  // ej: "Juan Pérez"
+  rol            String   // ej: "Capataz de Riego", "Agrónomo"
+  telefono       String   // ej: "+56 9 8765 4321"
+  activo         Boolean  @default(true)
+  createdAt      DateTime @default(now())
+}

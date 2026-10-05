@@ -12,6 +12,8 @@ import simuladorRoutes from './routes/simuladorRoutes';
 import dashboardRoutes from './routes/dashboardRoutes';
 import nodoRoutes from './routes/nodoRoutes';
 import whatsappRoutes from './routes/whatsappRoutes';
+import alertaRoutes from './routes/alertaRoutes';
+import configuracionRoutes from './routes/configuracionRoutes';
 
 const app = express();
 const server = http.createServer(app);
@@ -45,6 +47,8 @@ app.use('/simulador', simuladorRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/nodos', nodoRoutes);
 app.use('/api/whatsapp', whatsappRoutes);
+app.use('/api/alertas', alertaRoutes);
+app.use('/api/configuracion', configuracionRoutes);
 
 // Ruta base para saber si el servidor está vivo
 app.get('/', (req, res) => {

@@ -148,4 +148,85 @@ router.put('/gateways/:id/asignar', async (req, res) => {
   }
 });
 
+router.put('/cliente/:clienteId/sigla', async (req, res) => {
+  try {
+    const clienteId = parseInt(req.params.clienteId);
+    const { nuevaSigla } = req.body;
+
+    if (!nuevaSigla) {
+      return res.status(400).json({ error: 'La sigla es obligatoria' });
+    }
+
+    const siglaLimpia = nuevaSigla.trim().toUpperCase();
+    const sectores = await prisma.sector.findMany({
+      where: { clienteId },
+      orderBy: { id: 'asc' }
+    });
+
+    for (let i = 0; i < sectores.length; i++) {
+      const sec = sectores[i];
+      // Conservamos el número que ya tenía (ej: _SECTOR_004) o le asignamos correlativo
+      const match = sec.nombre.match(/_SECTOR_(\d+)$/i);
+      const numeroStr = match ? match[1] : String(i + 1).padStart(3, '0');
+      const nuevoNombre = `${siglaLimpia}_SECTOR_${numeroStr}`;
+
+      await prisma.sector.update({
+        where: { id: sec.id },
+        data: { nombre: nuevoNombre }
+      });
+    }
+
+    res.json({ mensaje: 'Siglas actualizadas en todos los sectores' });
+  } catch (error) {
+    console.error('Error actualizando siglas:', error);
+    res.status(500).json({ error: 'Error actualizando las siglas' });
+  }
+});
+
+
+// Helper geométrico: Recorta un rectángulo contra un polígono maestro (Algoritmo Sutherland-Hodgman)
+function recortarPoligono(sujeto: [number, number][], recorte: [number, number][]): [number, number][] {
+  let salida = sujeto;
+  for (let i = 0; i < recorte.length; i++) {
+    const entrada = salida;
+    salida = [];
+    if (entrada.length === 0) break;
+
+    const A = recorte[i];
+    const B = recorte[(i + 1) % recorte.length];
+
+    const estaAdentro = (P: [number, number]) =>
+      (B[1] - A[1]) * (P[0] - A[0]) - (B[0] - A[0]) * (P[1] - A[1]) >= 0;
+
+    const interseccion = (P1: [number, number], P2: [number, number]): [number, number] => {
+      const dc = [A[0] - B[0], A[1] - B[1]];
+      const dp = [P1[0] - P2[0], P1[1] - P2[1]];
+      const n1 = A[0] * B[1] - A[1] * B[0];
+      const n2 = P1[0] * P2[1] - P1[1] * P2[0];
+      const denom = dc[0] * dp[1] - dc[1] * dp[0];
+      if (Math.abs(denom) < 1e-12) return P1;
+      return [(n1 * dp[0] - n2 * dc[0]) / denom, (n1 * dp[1] - n2 * dc[1]) / denom];
+    };
+
+    // Aseguramos orientación correcta del borde respecto al centroide del polígono
+    const centroLat = recorte.reduce((acc, p) => acc + p[0], 0) / recorte.length;
+    const centroLng = recorte.reduce((acc, p) => acc + p[1], 0) / recorte.length;
+    const signoCentro = (B[1] - A[1]) * (centroLat - A[0]) - (B[0] - A[0]) * (centroLng - A[1]);
+    const dentro = (P: [number, number]) =>
+      signoCentro >= 0 ? estaAdentro(P) : !estaAdentro(P);
+
+    let S = entrada[entrada.length - 1];
+    for (const E of entrada) {
+      if (dentro(E)) {
+        if (!dentro(S)) salida.push(interseccion(S, E));
+        salida.push(E);
+      } else if (dentro(S)) {
+        salida.push(interseccion(S, E));
+      }
+      S = E;
+    }
+  }
+  return salida;
+}
+
 export default router;
